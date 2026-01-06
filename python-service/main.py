@@ -7,6 +7,7 @@ app = FastAPI()
 async def transcribe(request: Request):
     data = await request.json()
     video_path = data.get("videoPath")
+    print("video_path==>",video_path)
     transcript = transcribe_audio(video_path)
     return {"transcript": transcript}
 

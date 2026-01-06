@@ -1,24 +1,26 @@
-import { MongoClient, Db } from 'mongodb';
+// utils/mongo.ts
+
+import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-const uri = process.env.MONGODB_URI as string;
+const MONGODB_URI = process.env.MONGODB_URI as string;
 
-const client = new MongoClient(uri);
+let isConnected = false;
 
-let db: Db;
+export async function connectToMongo(): Promise<void> {
+  if (isConnected) return;
 
-export async function connectToMongo(): Promise<Db> {
-  if (!db) {
-    try {
-      await client.connect();
-      db = client.db('mcq_generator'); 
-      console.log('✅ Connected to MongoDB Atlas');
-    } catch (error) {
-      console.error('MongoDB connection error:', error);
-      throw error;
-    }
+  try {
+    await mongoose.connect(MONGODB_URI, {
+      dbName: 'mcq_generator', // or whatever DB name you're using
+    });
+
+    isConnected = true;
+    console.log('✅ Connected to MongoDB via Mongoose');
+  } catch (error) {
+    console.error('❌ Mongoose connection error:', error);
+    throw error;
   }
-  return db;
 }

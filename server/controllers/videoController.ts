@@ -2,10 +2,12 @@ import { Request, Response } from 'express';
 import { callTranscriptionAPI } from '../utils/callPython';
 import { connectToMongo } from '../utils/mongo';
 import axios from 'axios';
-import { Video } from '../models/Video';
-import { ObjectId } from 'mongodb';
-
-export const handleUpload = async (req: Request, res: Response): Promise<void> => {
+import { VideoModel } from '../models/Video';
+import mongoose from 'mongoose';
+import { io } from '../index';
+import {AuthenticatedRequest} from '../middleware/authMiddleware'
+import { UserPayload } from '../middleware/authMiddleware';
+export const handleUpload = async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   const videoPath = `server\\${req.file?.path}`;
   if (!videoPath) {
     res.status(400).json({ error: 'No video file uploaded' });
@@ -13,16 +15,25 @@ export const handleUpload = async (req: Request, res: Response): Promise<void> =
   }
 
   try {
-    const transcript = await callTranscriptionAPI(videoPath);
+ 
+    res.json({ success: true, status: 'uploaded successfully please wait couble of mintues to process' });
+     await processVideo(videoPath, req.file?.originalname || 'unknown.mp4', req.user!);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Transcription or MCQ generation failed' });
+  }
+};
+
+
+async function processVideo(filePath:string,filename:string, user: UserPayload) {
+   const transcript = await callTranscriptionAPI(filePath);
 
     const results = await Promise.all(
-      transcript.transcript.map(async (segment:string) => {
-
+      transcript.transcript.map(async (segment: string) => {
         const response = await axios.post('http://localhost:8000/generate-questions', {
           text: segment,
         });
-
-        console.log("response ------->", response.data);
 
         return {
           segment,
@@ -31,29 +42,24 @@ export const handleUpload = async (req: Request, res: Response): Promise<void> =
       })
     );
 
-    const db = await connectToMongo();
-    const collection = db.collection<Video>('videos');
+    await connectToMongo();
 
-    const videoDoc: Video = {
-      filename: req.file?.originalname || 'unknown.mp4',
+    const videoDoc = new VideoModel({
+      filename: filename || 'unknown.mp4',
       uploadedAt: new Date(),
       segments: results,
-    };
+    });
 
-    const insertResult = await collection.insertOne(videoDoc);
+    await videoDoc.save();
 
-    res.json({ success: true, transcript: results });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Transcription or MCQ generation failed' });
-  }
-};
+  io.to(user.id).emit('processing_done', { transcript, results });
+}
 
 
 export const getAllVideos = async (_req: Request, res: Response) => {
   try {
-    const db = await connectToMongo();
-    const videos = await db.collection<Video>('videos').find({}, { projection: { filename: 1 } }).toArray();
+    await connectToMongo();
+    const videos = await VideoModel.find({}, 'filename');
     res.json(videos);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch videos' });
@@ -62,8 +68,18 @@ export const getAllVideos = async (_req: Request, res: Response) => {
 
 export const getVideoById = async (req: Request, res: Response) => {
   try {
-    const db = await connectToMongo();
-    const video = await db.collection<Video>('videos').findOne({ _id: new ObjectId(req.params.id) });
+    await connectToMongo();
+
+    const id = req.params.id;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ error: 'Invalid video ID' });
+    }
+
+    const video = await VideoModel.findById(id);
+    if (!video) {
+      return res.status(404).json({ error: 'Video not found' });
+    }
+
     res.json(video);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch video' });

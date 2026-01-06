@@ -1,7 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import { handleUpload ,getAllVideos, getVideoById} from '../controllers/videoController';
-
+import {authMiddleware} from '../middleware/authMiddleware';
 const router = express.Router();
 
 const storage = multer.diskStorage({
@@ -10,10 +10,9 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({ storage });
-console.log("upload",upload)
 
 router.post('/upload', upload.single('video'), handleUpload);
 router.get('/all', getAllVideos);         
-router.get('/:id', getVideoById);
+router.get('/:id', getAllVideos);
 
 export default router;
